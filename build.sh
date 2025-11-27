@@ -1,0 +1,1 @@
+g++ -fsanitize=address,leak,undefined -O3 -Wall -Wextra -Wno-unused-function -finput-charset=UTF-8 -fexec-charset=UTF-8 -D __DEBUG__ -I./ libs/logging/logging.c libs/io/io.c stack/stack.c tree/optimizations.c tree/tree_math.c tree/tree.c tree/dump/dump.c differentiation/differentiation.c main.c -o dist/main.out

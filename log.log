@@ -1,0 +1,43 @@
+[27-11-2025 02:19:40 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:21:02 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:21:25 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:22:12 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:22:16 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:22:59 INFO] ("*"("x"nilnil)("+"("y"nilnil)("6"nilnil)))
+
+[27-11-2025 02:22:59 INFO] ("x"nilnil)("+"("y"nilnil)("6"nilnil)))
+
+[27-11-2025 02:22:59 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:24:24 INFO] 1
+[27-11-2025 02:24:24 INFO] 2
+[27-11-2025 02:24:24 INFO] 3
+[27-11-2025 02:24:24 INFO] 4
+[27-11-2025 02:24:24 INFO] 5
+[27-11-2025 02:24:24 INFO] 6
+[27-11-2025 02:24:24 INFO] 1
+[27-11-2025 02:24:24 INFO] 2
+[27-11-2025 02:24:24 INFO] 3
+[27-11-2025 02:24:24 INFO] 4
+[27-11-2025 02:24:24 INFO] 5
+[27-11-2025 02:24:24 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:26:50 INFO] 1
+[27-11-2025 02:26:50 INFO] 2
+[27-11-2025 02:26:50 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:27:07 INFO] 1
+[27-11-2025 02:27:07 INFO] 2
+[27-11-2025 02:27:07 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:28:33 ERROR] Parse error in "diff1.db" at 1:9 (offset 8): unknown parse error
+[27-11-2025 02:32:50 INFO] 1
+[27-11-2025 02:32:50 INFO] 2
+[27-11-2025 02:32:50 INFO] 1
+[27-11-2025 02:32:50 INFO] 2
+[27-11-2025 02:33:13 INFO] 1
+[27-11-2025 02:33:13 INFO] 1
+[27-11-2025 02:33:40 INFO] 1
+[27-11-2025 02:33:40 INFO] 2
+[27-11-2025 02:33:40 INFO] 1
+[27-11-2025 02:33:40 INFO] 2
+[27-11-2025 02:59:40 ERROR] Parse error in "diff1.db" at 1:38 (offset 37): unknown parse error
+[27-11-2025 04:21:29 ERROR] Error getting file stats for diff2.db
+[27-11-2025 04:21:29 ERROR] [File libs/io/io.c at line 52 at FILE* load_file(const char*, const char*)] Can't open file %s in mode %s
+[27-11-2025 04:21:29 ERROR] [File libs/io/io.c at line 74 at size_t read_file(FILE*, operational_data_t*)] Error reading file, some data is missing
