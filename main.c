@@ -5,13 +5,24 @@
 #include "tree/dump/dump.h"
 #include "differentiation/differentiation.h"
 
-const char* DEFAULT_DB_FILE = "diff1.db";
+const char* DEFAULT_DB_FILE = "diff3.db";
 
 int main()
 {
     setlocale(LC_ALL, "");
     init_logging("log.log", DEBUG);
 
+    //const char* s = "10*(30+20*10)+16/(3+1)$";
+    //err_t ret = OK;
+
+    CREATE_TREE(tree1);
+    unused tree_read_file(&tree1, DEFAULT_DB_FILE, ERROR);    
+    printf("%lf", evaluate_tree(&tree1));
+    tree_dump_latex(&tree1, "tree1.tex");
+
+    tree_dtor(&tree1);
+
+    /*
     CREATE_TREE(tree1);
     unused tree_read_file(&tree1, DEFAULT_DB_FILE, ERROR);
     tree_dump_graphviz(&tree1, "tree1", "tgdump.html");
@@ -31,6 +42,7 @@ int main()
     unused tree_fprint("out2.db", &tree2);
     tree_dtor(&tree2);
     tree_dtor(&dtree2);
+    */
     
     close_log_file();
     return 0;

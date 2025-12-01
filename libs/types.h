@@ -12,6 +12,7 @@ typedef enum
     ERR_BAD_ARG = 1,
     ERR_CORRUPT = 2,
     ERR_ALLOC   = 3,
+    ERR_SYNTAX  = 4,
 } err_t;
 
 #endif

@@ -465,12 +465,26 @@ static void latex_print_node(FILE* out,
                 break;
 
             case OP_POW:
-                fprintf(out, "{");
-                latex_print_node(out, L, node, 0);
-                fprintf(out, "}^{");
+            {
+                int base_paren = 0;
+                if (L && L->node_type == TYPE_OP)
+                {
+                    if (L->value.op == OP_ADD || L->value.op == OP_SUB)
+                        base_paren = 1;
+                }
+
+                if (base_paren)
+                    fprintf(out, "\\left(");
+
+                latex_print_node(out, L, NULL, 0);
+                if (base_paren)
+                    fprintf(out, "\\right)");
+
+                fprintf(out, "^{");
                 latex_print_node(out, R, node, 1);
                 fprintf(out, "}");
                 break;
+            }
 
             case OP_LOG:
                 fprintf(out, "\\log_{");
@@ -534,6 +548,7 @@ void tree_dump_latex(const tree_t* tree, const char* filename)
                "tree_dump_latex: tree verification failed"))
         return;
 
+    clean_file(filename);
     FILE* file = load_file(filename, "a");
     if (!CHECK(ERROR, file != NULL, "tree_dump_latex: load_file failed"))
         return;
@@ -552,5 +567,11 @@ void tree_dump_latex(const tree_t* tree, const char* filename)
     fprintf(file, "\\end{document}\n");
 
     fclose(file);
+
+    char cmd[512] = { 0 };
+    snprintf(cmd, sizeof(cmd),
+             "pdflatex -interaction=nonstopmode -halt-on-error \"%s\" > /dev/null 2>&1",
+             filename);
+    unused system(cmd);
 }
 

@@ -388,7 +388,7 @@ var_t* get_or_create_var(tree_t* tree, const char* name)
     var_t* v = &tree->variables[tree->var_amount++];
     v->name  = strdup(name);
     v->hash  = h;
-    v->value = 0.0;
+    v->value = NAN;
 
     return v;
 }
@@ -560,6 +560,263 @@ static node_t* parse_node(tree_t* tree, const char** buf, err_t* err)
     return node;
 }
 
+static node_t* new_num_node(tree_t* tree, double val, err_t* err)
+{
+    if (!tree || !err || *err != OK)
+        return NULL;
+
+    node_t* n = NULL;
+    *err = node_ctor(&n);
+    if (*err != OK || !n)
+    {
+        *err = ERR_ALLOC;
+        return NULL;
+    }
+
+    n->node_type     = TYPE_NUM;
+    n->value.d_value = val;
+    n->left          = NULL;
+    n->right         = NULL;
+    n->rank          = 100;
+
+    tree->nodes_amount++;
+    return n;
+}
+
+static node_t* new_op_node(tree_t* tree,
+                           node_operations_e op,
+                           node_t* left,
+                           node_t* right,
+                           err_t*  err)
+{
+    if (!tree || !err || *err != OK)
+        return NULL;
+
+    node_t* n = NULL;
+    *err = node_ctor(&n);
+    if (*err != OK || !n)
+    {
+        *err = ERR_ALLOC;
+        return NULL;
+    }
+
+    n->node_type = TYPE_OP;
+    n->value.op  = op;
+    n->left      = left;
+    n->right     = right;
+    n->rank      = get_op_rank(op);
+
+    tree->nodes_amount++;
+    return n;
+}
+
+static node_t* new_var_node(tree_t* tree, const char* name, err_t* err)
+{
+    if (!tree || !err || *err != OK)
+        return NULL;
+
+    var_t* v = get_or_create_var(tree, name);
+    if (!v)
+    {
+        *err = ERR_ALLOC;
+        return NULL;
+    }
+
+    node_t* n = NULL;
+    *err = node_ctor(&n);
+    if (*err != OK || !n)
+    {
+        *err = ERR_ALLOC;
+        return NULL;
+    }
+
+    n->node_type      = TYPE_VAR;
+    n->value.var.name = strdup(v->name);
+    n->value.var.hash = v->hash;
+    n->value.var.value = v->value;
+    n->left           = NULL;
+    n->right          = NULL;
+    n->rank           = 100;
+
+    tree->nodes_amount++;
+    return n;
+}
+
+
+static node_t* GetN(const char** s, tree_t* tree, err_t* err)
+{
+    const char* start = *s;
+    char* end = NULL;
+
+    double val = strtod(start, &end);
+
+    if (end == start) 
+    {
+        *err = ERR_SYNTAX;
+        return NULL;
+    }
+
+    *s = end;
+
+    return new_num_node(tree, val, err);
+}
+
+static node_t* GetE(const char** s, tree_t* tree, err_t* err);
+
+static node_t* GetP(const char** s, tree_t* tree, err_t* err)
+{
+    if (**s == '(')
+    {
+        (*s)++;
+        node_t* val = GetE(s, tree, err);
+        if (*err != OK || !val)
+            return NULL;
+
+        if (**s != ')')
+        {
+            *err = ERR_SYNTAX;
+            return NULL;
+        }
+        (*s)++;
+        return val;
+    }
+
+    if (('a' <= **s && **s <= 'z') || ('A' <= **s && **s <= 'Z'))
+    {
+        char ident[32] = {0};
+        size_t n = 0;
+
+        while ((('a' <= **s && **s <= 'z') || ('A' <= **s && **s <= 'Z')) &&
+               n + 1 < sizeof(ident))
+        {
+            ident[n++] = **s;
+            (*s)++;
+        }
+        ident[n] = '\0';
+
+        node_operations_e op = OP_NOP;
+        if (op_from_token_hash(ident, &op))
+        {
+            if (**s != '(')
+            {
+                *err = ERR_SYNTAX;
+                return NULL;
+            }
+
+            (*s)++;
+            node_t* arg1 = GetE(s, tree, err);
+            if (*err != OK || !arg1)
+                return NULL;
+
+            if (**s != ')')
+            {
+                *err = ERR_SYNTAX;
+                return NULL;
+            }
+            (*s)++;
+
+            if (op == OP_LOG && **s == '(')
+            {
+                (*s)++;
+                node_t* arg2 = GetE(s, tree, err);
+                if (*err != OK || !arg2)
+                    return NULL;
+
+                if (**s != ')')
+                {
+                    *err = ERR_SYNTAX;
+                    return NULL;
+                }
+                (*s)++;
+
+                return new_op_node(tree, OP_LOG, arg1, arg2, err);
+            }
+
+            return new_op_node(tree, op, arg1, NULL, err);
+        }
+        else
+        {
+            if (n == 1 &&
+                (('a' <= ident[0] && ident[0] <= 'z') ||
+                 ('A' <= ident[0] && ident[0] <= 'Z')))
+            {
+                return new_var_node(tree, ident, err);
+            }
+
+            *err = ERR_SYNTAX;
+            return NULL;
+        }
+    }
+
+    return GetN(s, tree, err);
+}
+static node_t* GetPW(const char** s, tree_t* tree, err_t* err)
+{
+    node_t* val = GetP(s, tree, err);
+
+    while (**s == '^')
+    {
+        (*s)++;
+        node_t* rhs = GetP(s, tree, err);
+        val = new_op_node(tree, OP_POW, val, rhs, err);
+    }
+
+    return val;
+}
+
+static node_t* GetT(const char** s, tree_t* tree, err_t* err)
+{
+    node_t* val = GetPW(s, tree, err);
+    while (**s == '*' || **s == '/')
+    {
+        const char op = **s;
+        (*s)++;
+
+        node_t* val2 = GetPW(s, tree, err);
+
+        if (op == '*')
+            val = new_op_node(tree, OP_MUL, val, val2, err);
+        else
+            val = new_op_node(tree, OP_DIV, val, val2, err);
+    }
+
+    return val;
+}
+
+static node_t* GetE(const char** s, tree_t* tree, err_t* err)
+{
+    node_t* val = GetT(s, tree, err);
+    while (**s == '+' || **s == '-')
+    {
+        const char op = **s;
+        (*s)++;
+
+        node_t* val2 = GetT(s, tree, err);
+
+        if (op == '+')
+            val = new_op_node(tree, OP_ADD, val, val2, err);
+        else
+            val = new_op_node(tree, OP_SUB, val, val2, err);
+    }
+
+    return val;
+}
+
+static node_t* GetG(const char** s, tree_t* tree, err_t* err)
+{
+    node_t* val = GetE(s, tree, err);
+    if (*err != OK || !val)
+        return NULL;
+
+    if (!(**s == '\0' || **s == '\n' || **s == '\r'))
+    {
+        *err = ERR_SYNTAX;
+        return NULL;
+    }
+
+    return val;
+}
+
 err_t tree_read_file(tree_t* tree, const char* filename, logging_level level)
 {
     if (!CHECK(ERROR, tree != NULL, "tree_read_file: tree == NULL")) 
@@ -591,7 +848,7 @@ err_t tree_read_file(tree_t* tree, const char* filename, logging_level level)
     }
     const char* buf_ptr = op_data.buffer + curr_pos;
     tree_clear(tree);
-    tree->root = parse_node(tree, &buf_ptr, &parse_err);
+    tree->root = GetG(&buf_ptr, tree, &parse_err);
 
     if (tree->root == NULL || parse_err != OK)
     {

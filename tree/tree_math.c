@@ -19,7 +19,7 @@ static double eval_node(tree_t* tree, node_t* node)
             if (!v)
                 return NAN;
 
-            if (v->value == 0.0)
+            if (isnan(v->value))
             {
                 printf("Enter value for variable %s: ",
                        v->name ? v->name : "?");

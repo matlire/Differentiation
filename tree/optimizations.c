@@ -97,6 +97,67 @@ static node_t* optimize_mul_node(node_t* node, int* changed)
     return node;
 }
 
+static int fold_const_pow_subtree(const node_t* n, double* out)
+{
+    if (!n || !out)
+        return 0;
+
+    switch (n->node_type)
+    {
+        case TYPE_NUM:
+            *out = n->value.d_value;
+            return 1;
+
+        case TYPE_VAR:
+            return 0;
+
+        case TYPE_OP:
+        {
+            double lv = 0.0;
+            double rv = 0.0;
+
+            switch (n->value.op)
+            {
+                case OP_ADD:
+                    if (!fold_const_pow_subtree(n->left, &lv) ||
+                        !fold_const_pow_subtree(n->right, &rv))
+                        return 0;
+                    *out = lv + rv;
+                    return 1;
+
+                case OP_SUB:
+                    if (!fold_const_pow_subtree(n->left, &lv) ||
+                        !fold_const_pow_subtree(n->right, &rv))
+                        return 0;
+                    *out = lv - rv;
+                    return 1;
+
+                case OP_MUL:
+                    if (!fold_const_pow_subtree(n->left, &lv) ||
+                        !fold_const_pow_subtree(n->right, &rv))
+                        return 0;
+                    *out = lv * rv;
+                    return 1;
+
+                case OP_DIV:
+                    if (!fold_const_pow_subtree(n->left, &lv) ||
+                        !fold_const_pow_subtree(n->right, &rv))
+                        return 0;
+                    if (is_same(rv, 0.0))
+                        return 0;
+                    *out = lv / rv;
+                    return 1;
+
+                default:
+                    return 0;
+            }
+        }
+
+        default:
+            return 0;
+    }
+}
+
 static node_t* optimize_pow_node(node_t* node, int* changed)
 {
     if (is_num(R, 0.0))
@@ -116,7 +177,6 @@ static node_t* optimize_pow_node(node_t* node, int* changed)
         tree_delete_node(R, 0);
         node->left  = NULL;
         node->right = NULL;
-        node_dtor(node);
         *changed = 1;
         return res;
     }
@@ -130,6 +190,29 @@ static node_t* optimize_pow_node(node_t* node, int* changed)
         node->value.d_value = 1.0;
         *changed = 1;
         return node;
+    }
+
+    if (R)
+    {
+        double exp_val = 0.0;
+        if (fold_const_pow_subtree(R, &exp_val))
+        {
+            if (R->left)
+            {
+                tree_delete_node(R->left, 0);
+                R->left = NULL;
+            }
+            if (R->right)
+            {
+                tree_delete_node(R->right, 0);
+                R->right = NULL;
+            }
+            R->node_type     = TYPE_NUM;
+            R->value.d_value = exp_val;
+            *changed = 1;
+
+            return node;
+        }
     }
 
     return node;
