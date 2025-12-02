@@ -335,11 +335,6 @@ void tree_dump_graphviz(const tree_t *tree, const char *title, const char *filen
     free(nodes);
 }
 
-static void latex_print_node(FILE* out,
-                             const node_t* node,
-                             const node_t* parent,
-                             int           is_right_child);
-
 static const char* op_to_latex_func(node_operations_e op)
 {
     switch (op)
@@ -410,10 +405,10 @@ static void latex_print_number(FILE* out, double v)
         fprintf(out, "%.15g", v);
 }
 
-static void latex_print_node(FILE* out,
-                             const node_t* node,
-                             const node_t* parent,
-                             int           is_right_child)
+void latex_print_node(FILE* out,
+                      const node_t* node,
+                      const node_t* parent,
+                      int           is_right_child)
 {
     if (!node)
         return;
@@ -537,7 +532,30 @@ static void latex_print_node(FILE* out,
         fprintf(out, "\\right)");
 }
 
-void tree_dump_latex(const tree_t* tree, const char* filename)
+void tree_dump_begin(const char* filename)
+{
+    if (!CHECK(ERROR, filename != NULL, "tree_dump_begin: filename is NULL"))
+        return;
+
+    FILE* file = load_file(filename, "w");
+    if (!CHECK(ERROR, file != NULL, "tree_dump_begin: load_file failed"))
+        return;
+
+    fprintf(file,
+            "\\documentclass[a4paper,12pt]{article}\n"
+            "\\usepackage[a4paper,top=1.3cm,bottom=2cm,left=1.5cm,right=1.5cm]{geometry}\n"
+            "\\usepackage{amsmath,amsfonts,amssymb,amsthm,mathtools}\n"
+            "\\usepackage{tikz}\n"
+            "\\usepackage{pgfplots}\n"
+            "\\pgfplotsset{compat=1.18}\n"
+            "\\begin{document}\n\n");
+
+    fclose(file);
+}
+
+void tree_dump_latex(const tree_t* tree,
+                     const char*   filename,
+                     const char*   comment)
 {
     if (!CHECK(ERROR, tree != NULL,     "tree_dump_latex: tree is NULL"))
         return;
@@ -548,24 +566,34 @@ void tree_dump_latex(const tree_t* tree, const char* filename)
                "tree_dump_latex: tree verification failed"))
         return;
 
-    clean_file(filename);
     FILE* file = load_file(filename, "a");
     if (!CHECK(ERROR, file != NULL, "tree_dump_latex: load_file failed"))
         return;
 
-    fprintf(file,
-            "\\documentclass[a4paper,12pt]{article}\n"
-            "\\usepackage[a4paper,top=1.3cm,bottom=2cm,left=1.5cm,right=1.5cm]{geometry}\n"
-            "\\usepackage{amsmath,amsfonts,amssymb,amsthm,mathtools}\n"
-            "\\begin{document}\n\n");
+    if (comment && comment[0] != '\0')
+    {
+        fprintf(file, "%% %s\n", comment);
+        fprintf(file, "\\noindent\\textbf{%s}\\\\[4pt]\n\n", comment);
+    }
 
     fprintf(file, "\\begin{equation}\n");
     if (tree->root)
         latex_print_node(file, tree->root, NULL, 0);
     fprintf(file, "\n\\end{equation}\n\n");
 
-    fprintf(file, "\\end{document}\n");
+    fclose(file);
+}
 
+void tree_dump_end(const char* filename)
+{
+    if (!CHECK(ERROR, filename != NULL, "tree_dump_end: filename is NULL"))
+        return;
+
+    FILE* file = load_file(filename, "a");
+    if (!CHECK(ERROR, file != NULL, "tree_dump_end: load_file failed"))
+        return;
+
+    fprintf(file, "\\end{document}\n");
     fclose(file);
 
     char cmd[512] = { 0 };
@@ -575,3 +603,120 @@ void tree_dump_latex(const tree_t* tree, const char* filename)
     unused system(cmd);
 }
 
+static double eval_node_plot(const node_t* node, double x)
+{
+    if (!node)
+        return NAN;
+
+    switch (node->node_type)
+    {
+        case TYPE_NUM:
+            return node->value.d_value;
+
+        case TYPE_VAR:
+            if (node->value.var.name && strcmp(node->value.var.name, "x") == 0)
+                return x;
+            return 0.0;
+
+        case TYPE_OP:
+        {
+            double left  = node->left  ? eval_node_plot(node->left,  x) : NAN;
+            double right = node->right ? eval_node_plot(node->right, x) : NAN;
+
+            switch (node->value.op)
+            {
+                case OP_ADD:  return left + right;
+                case OP_SUB:  return left - right;
+                case OP_MUL:  return left * right;
+                case OP_DIV:  return right != 0.0 ? left / right : NAN;
+                case OP_POW:  return pow(left, right);
+
+                case OP_SIN:  return sin(left);
+                case OP_COS:  return cos(left);
+                case OP_TAN:  return tan(left);
+                case OP_COT:  return 1.0 / tan(left);
+
+                case OP_SINH: return sinh(left);
+                case OP_COSH: return cosh(left);
+                case OP_TANH: return tanh(left);
+                case OP_COTH: return cosh(left) / sinh(left);
+
+                case OP_LOG:  return log(right) / log(left);
+                case OP_LN:   return log(left);
+                case OP_SQRT: return left >= 0.0 ? sqrt(left) : NAN;
+
+                case OP_ASIN: return asin(left);
+                case OP_ACOS: return acos(left);
+                case OP_ATAN: return atan(left);
+                case OP_ACOT: return atan(1.0 / left);
+
+                case OP_NOP:
+                default:
+                    return left;
+            }
+        }
+
+        default:
+            return NAN;
+    }
+}
+
+void tree_dump_plot(const tree_t* tree,
+                    const char*   filename,
+                    double        x_from,
+                    double        x_to,
+                    double        y_from,
+                    double        y_to,
+                    double        step,
+                    const char*   comment)
+{
+    if (!CHECK(ERROR, tree != NULL,     "tree_dump_plot: tree is NULL"))
+        return;
+    if (!CHECK(ERROR, filename != NULL, "tree_dump_plot: filename is NULL"))
+        return;
+
+    if (!CHECK(ERROR, tree_verify(tree) == OK,
+               "tree_dump_plot: tree verification failed"))
+        return;
+
+    if (step <= 0.0 || x_to <= x_from)
+        return;
+
+    FILE* file = load_file(filename, "a");
+    if (!CHECK(ERROR, file != NULL, "tree_dump_plot: load_file failed"))
+        return;
+
+    if (comment && comment[0] != '\0')
+    {
+        fprintf(file, "%% %s\n", comment);
+        fprintf(file, "\\noindent\\textbf{%s}\\\\[4pt]\n\n", comment);
+    }
+
+    fprintf(file,
+            "\\begin{tikzpicture}\n"
+            "\\begin{axis}[\n"
+            "  xmin=%g, xmax=%g,\n"
+            "  ymin=%g, ymax=%g,\n"
+            "  axis lines=middle,\n"
+            "  grid=both,\n"
+            "  xlabel={$x$},\n"
+            "  ylabel={$y$}\n"
+            "]\n",
+            x_from, x_to, y_from, y_to);
+
+    fprintf(file, "\\addplot[smooth] coordinates {\n");
+
+    for (double x = x_from; x <= x_to + 0.5 * step; x += step)
+    {
+        double y = eval_node_plot(tree->root, x);
+        if (!isnan(y) && !isinf(y))
+            fprintf(file, "  (%g,%g)\n", x, y);
+    }
+
+    fprintf(file,
+            "};\n"
+            "\\end{axis}\n"
+            "\\end{tikzpicture}\n\n");
+
+    fclose(file);
+}

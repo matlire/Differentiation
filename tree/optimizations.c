@@ -48,31 +48,23 @@ static node_t* optimize_add_node(node_t* node, int* changed)
     return node;
 }
 
-static node_t* optimize_mul_node(node_t* node, int* changed)
+static node_t* optimize_sub_node(node_t* node, int* changed)
 {
-    if (is_num(L, 0.0) || is_num(R, 0.0))
+    if (L && R &&
+        L->node_type == TYPE_NUM &&
+        R->node_type == TYPE_NUM)
     {
-        if (L) tree_delete_node(L, 0);
-        if (R) tree_delete_node(R, 0);
+        double res_val = L->value.d_value - R->value.d_value;
+        tree_delete_node(L, 0);
+        tree_delete_node(R, 0);
         L = R = NULL;
         node->node_type     = TYPE_NUM;
-        node->value.d_value = 0.0;
+        node->value.d_value = res_val;
         *changed = 1;
         return node;
     }
 
-    if (is_num(L, 1.0) && !is_num(R, 1.0))
-    {
-        node_t* res = R;
-        tree_delete_node(L, 0);
-        node->left  = NULL;
-        node->right = NULL;
-        node_dtor(node);
-        *changed = 1;
-        return res;
-    }
-
-    if (is_num(R, 1.0) && !is_num(L, 1.0))
+    if (is_num(R, 0.0) && !is_num(L, 0.0))
     {
         node_t* res = L;
         tree_delete_node(R, 0);
@@ -81,17 +73,6 @@ static node_t* optimize_mul_node(node_t* node, int* changed)
         node_dtor(node);
         *changed = 1;
         return res;
-    }
-
-    if (is_num(L, 1.0) && is_num(R, 1.0))
-    {
-        tree_delete_node(L, 0);
-        tree_delete_node(R, 0);
-        L = R = NULL;
-        node->node_type     = TYPE_NUM;
-        node->value.d_value = 1.0;
-        *changed = 1;
-        return node;
     }
 
     return node;
@@ -156,6 +137,55 @@ static int fold_const_pow_subtree(const node_t* n, double* out)
         default:
             return 0;
     }
+}
+
+static node_t* optimize_mul_node(node_t* node, int* changed)
+{
+    if (is_num(L, 0.0) || is_num(R, 0.0))
+    {
+        if (L) tree_delete_node(L, 0);
+        if (R) tree_delete_node(R, 0);
+        L = R = NULL;
+        node->node_type     = TYPE_NUM;
+        node->value.d_value = 0.0;
+        *changed = 1;
+        return node;
+    }
+
+    if (is_num(L, 1.0) && !is_num(R, 1.0))
+    {
+        node_t* res = R;
+        tree_delete_node(L, 0);
+        node->left  = NULL;
+        node->right = NULL;
+        node_dtor(node);
+        *changed = 1;
+        return res;
+    }
+
+    if (is_num(R, 1.0) && !is_num(L, 1.0))
+    {
+        node_t* res = L;
+        tree_delete_node(R, 0);
+        node->left  = NULL;
+        node->right = NULL;
+        node_dtor(node);
+        *changed = 1;
+        return res;
+    }
+
+    if (is_num(L, 1.0) && is_num(R, 1.0))
+    {
+        tree_delete_node(L, 0);
+        tree_delete_node(R, 0);
+        L = R = NULL;
+        node->node_type     = TYPE_NUM;
+        node->value.d_value = 1.0;
+        *changed = 1;
+        return node;
+    }
+
+    return node;
 }
 
 static node_t* optimize_pow_node(node_t* node, int* changed)
@@ -234,6 +264,8 @@ static node_t* optimize_subtree(node_t* node, int* changed)
     {
         case OP_ADD:
             return optimize_add_node(node, changed);
+        case OP_SUB:
+            return optimize_sub_node(node, changed);
         case OP_MUL:
             return optimize_mul_node(node, changed);
         case OP_POW:
