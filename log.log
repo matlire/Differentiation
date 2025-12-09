@@ -48,3 +48,5 @@
 [02-12-2025 01:52:51 ERROR] Parse error in "diff3.db" at 1:29 (offset 28): unknown parse error
 [02-12-2025 03:07:08 ERROR] Parse error in "diff2.db" at 1:5 (offset 4): unknown parse error
 [02-12-2025 03:07:36 ERROR] Parse error in "diff2.db" at 1:5 (offset 4): unknown parse error
+[09-12-2025 03:54:08 ERROR] Error getting file stats for diff2.db
+[09-12-2025 03:54:08 ERROR] [File libs/io/io.c at line 52 at FILE* load_file(const char*, const char*)] Can't open file %s in mode %s

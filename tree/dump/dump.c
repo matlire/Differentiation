@@ -1,5 +1,9 @@
 #include "dump.h"
 
+err_t tree_derivative(tree_t* in_tree,
+                      tree_t* out_tree,
+                      derivative_config_t* config);
+
 static size_t s_img_counter = 0;
 
 typedef struct NodeInfo
@@ -21,35 +25,10 @@ static void node_dump_label(const node_t *node,
     {
         case TYPE_OP:
         {
-            const char *op_str = "?";
-            switch (node->value.op)
-            {
-                case OP_ADD:  op_str = "+";    break;
-                case OP_SUB:  op_str = "-";    break;
-                case OP_MUL:  op_str = "*";    break;
-                case OP_DIV:  op_str = "/";    break;
-                case OP_POW:  op_str = "^";    break;
-                case OP_SIN:  op_str = "sin";  break;
-                case OP_COS:  op_str = "cos";  break;
-                case OP_TAN:  op_str = "tan";  break;
-                case OP_COT:  op_str = "cot";  break;
-                case OP_SINH: op_str = "sinh"; break;
-                case OP_COSH: op_str = "cosh"; break;
-                case OP_TANH: op_str = "tanh"; break;
-                case OP_COTH: op_str = "coth"; break;
-                case OP_LOG:  op_str = "log";  break;
-                case OP_LN:   op_str = "ln";   break;
-                case OP_SQRT: op_str = "sqrt"; break;
-                case OP_ASIN: op_str = "asin"; break;
-                case OP_ACOS: op_str = "acos"; break;
-                case OP_ATAN: op_str = "atan"; break;
-                case OP_ACOT: op_str = "acot"; break;
-                case OP_NOP:
-                default:      op_str = "?";    break;
-            }
+            const char* op_str = op_to_str(node->value.op);
             snprintf(type_buf,  type_buf_size,  "OP");
             snprintf(value_buf, value_buf_size,
-                     "%s (id=%d)", op_str, (int)node->value.op);
+                     "%s (id=%d)", op_str ? op_str : "?", (int)node->value.op);
             break;
         }
 
@@ -84,6 +63,116 @@ static void node_dump_label(const node_t *node,
     }
 }
 
+#define MAX_MEMES    64
+#define MAX_MEME_LEN 256
+
+static char*  g_memes[MAX_MEMES] = { 0 };
+static size_t g_memes_count      = 0;
+static int    g_memes_loaded     = 0;
+
+static void memes_load(void)
+{
+    if (g_memes_loaded)
+        return;
+
+    FILE* f = load_file("memes.txt", "r");
+    if (!f)
+    {
+        g_memes_loaded = 1;
+        return;
+    }
+
+    char buf[MAX_MEME_LEN] = { 0 };
+
+    while (g_memes_count < MAX_MEMES && fgets(buf, sizeof(buf), f))
+    {
+        size_t len = strlen(buf);
+        while (len > 0 &&
+               (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
+            buf[--len] = '\0';
+
+        if (len == 0)
+            continue;
+
+        char* line = (char*)calloc(len + 1, 1);
+        if (!line)
+            break;
+
+        memcpy(line, buf, len);
+        line[len] = '\0';
+
+        g_memes[g_memes_count++] = line;
+    }
+
+    fclose(f);
+    g_memes_loaded = 1;
+}
+
+static const char* memes_get_random(void)
+{
+    static int seeded = 0;
+    if (!seeded)
+    {
+        srand((unsigned)time(NULL));
+        seeded = 1;
+    }
+
+    memes_load();
+
+    if (g_memes_count == 0)
+        return NULL;
+
+    size_t idx = (size_t)(rand() % (int)g_memes_count);
+    return g_memes[idx];
+}
+
+static void dump_heading_internal(const char* filename, const char* text)
+{
+    if (!filename || !text)
+        return;
+
+    FILE* f = load_file(filename, "a");
+    if (!f)
+        return;
+
+    fprintf(f, "\\noindent\\textbf{%s}\\\\[6pt]\n\n", text);
+    fclose(f);
+}
+
+static void dump_meme_internal(const char* filename, const char* meme)
+{
+    if (!filename || !meme || meme[0] == '\0')
+        return;
+
+    FILE* f = load_file(filename, "a");
+    if (!f)
+        return;
+
+    fprintf(f, "\\noindent\\textit{%s}\\\\[4pt]\n\n", meme);
+    fclose(f);
+}
+
+void tree_dump_heading(derivative_config_t* config,
+                       const char*          text)
+{
+    if (!config || !config->dump_filename || !text)
+        return;
+
+    dump_heading_internal(config->dump_filename, text);
+}
+
+void tree_dump_random_meme(derivative_config_t* config)
+{
+    if (!config || !config->dump_filename)
+        return;
+
+    const char* meme = memes_get_random();
+    if (!meme)
+        return;
+
+    dump_meme_internal(config->dump_filename, meme);
+}
+
 void tree_dump_reset(const char *filename)
 {
     if (!filename) return;
@@ -108,11 +197,13 @@ static void assign_inorder_xpos(const node_t *node, NodeInfo *arr, size_t n, siz
     assign_inorder_xpos(node->right, arr, n, counter);
 }
 
-void tree_dump_graphviz(const tree_t *tree, const char *title, const char *filename)
+void tree_dump_graphviz(const tree_t *tree, derivative_config_t* config)
 {
-    if (!tree || !filename) return;
+    if (!tree || !config || !config->dump_filename) return;
 
     const node_t *root = tree->root;
+    const char* filename = config->dump_filename;
+
     char dot_path[512], svg_name[64], svg_path[512];
     snprintf(svg_name, sizeof(svg_name), "img%zu.svg", s_img_counter++);
     snprintf(dot_path, sizeof(dot_path), "temp/graph.dot");
@@ -163,7 +254,7 @@ void tree_dump_graphviz(const tree_t *tree, const char *title, const char *filen
         FILE *html = fopen(filename, "a");
         if (html)
         {
-            fprintf(html, "<h2>%s</h2>\n", title ? title : "Tree");
+            fprintf(html, "<h2>%s</h2>\n", "Tree");
             fprintf(html, "<h3>Nodes: 0</h3>\n");
             fprintf(html, "<h3>Root: (null)</h3>\n");
             fprintf(html, "<img src=\"temp/%s\" />\n", svg_name);
@@ -266,7 +357,7 @@ void tree_dump_graphviz(const tree_t *tree, const char *title, const char *filen
         const char *outline = (p == root) ? OUT_ROOT : OUT_NODE;
         const char *fill    = (p == root) ? FILL_ROOT : FILL_NODE;
 
-        char type_str[32]  = {0};
+        char type_str[32]   = {0};
         char value_str[128] = {0};
         node_dump_label(p, type_str, sizeof(type_str),
                            value_str, sizeof(value_str));
@@ -324,7 +415,7 @@ void tree_dump_graphviz(const tree_t *tree, const char *title, const char *filen
     FILE *html = fopen(filename, "a");
     if (html)
     {
-        fprintf(html, "<h2>%s</h2>\n", title ? title : "Tree");
+        fprintf(html, "<h2>%s</h2>\n", "Tree");
         fprintf(html, "<h3>Nodes: %zu</h3>\n", n);
         fprintf(html, "<h3>Root: 0x%p</h3>\n", (void*)root);
         fprintf(html, "<img src=\"temp/t%s\" />\n", svg_name);
@@ -435,19 +526,19 @@ void latex_print_node(FILE* out,
         {
             case OP_ADD:
                 latex_print_node(out, L, node, 0);
-                fprintf(out, " + ");
+                fprintf(out, " + \\allowbreak ");
                 latex_print_node(out, R, node, 1);
                 break;
 
             case OP_SUB:
                 latex_print_node(out, L, node, 0);
-                fprintf(out, " - ");
+                fprintf(out, " - \\allowbreak ");
                 latex_print_node(out, R, node, 1);
                 break;
 
             case OP_MUL:
                 latex_print_node(out, L, node, 0);
-                fprintf(out, " \\cdot ");
+                fprintf(out, " \\cdot \\allowbreak ");
                 latex_print_node(out, R, node, 1);
                 break;
 
@@ -461,17 +552,13 @@ void latex_print_node(FILE* out,
 
             case OP_POW:
             {
-                int base_paren = 0;
-                if (L && L->node_type == TYPE_OP)
-                {
-                    if (L->value.op == OP_ADD || L->value.op == OP_SUB)
-                        base_paren = 1;
-                }
+                int base_paren = (L && L->node_type == TYPE_OP);
 
                 if (base_paren)
                     fprintf(out, "\\left(");
 
                 latex_print_node(out, L, NULL, 0);
+
                 if (base_paren)
                     fprintf(out, "\\right)");
 
@@ -486,13 +573,13 @@ void latex_print_node(FILE* out,
                 latex_print_node(out, L, node, 0);
                 fprintf(out, "}");
                 fprintf(out, "\\left(");
-                latex_print_node(out, R, node, 1);
+                latex_print_node(out, R, NULL, 0);
                 fprintf(out, "\\right)");
                 break;
 
             case OP_SQRT:
                 fprintf(out, "\\sqrt{");
-                latex_print_node(out, L, node, 0);
+                latex_print_node(out, L, NULL, 0);
                 fprintf(out, "}");
                 break;
 
@@ -515,7 +602,7 @@ void latex_print_node(FILE* out,
                     f = "\\operatorname{f}";
                 fprintf(out, "%s", f);
                 fprintf(out, "\\left(");
-                latex_print_node(out, L, node, 0);
+                latex_print_node(out, L, NULL, 0);
                 fprintf(out, "\\right)");
                 break;
             }
@@ -532,78 +619,7 @@ void latex_print_node(FILE* out,
         fprintf(out, "\\right)");
 }
 
-void tree_dump_begin(const char* filename)
-{
-    if (!CHECK(ERROR, filename != NULL, "tree_dump_begin: filename is NULL"))
-        return;
-
-    FILE* file = load_file(filename, "w");
-    if (!CHECK(ERROR, file != NULL, "tree_dump_begin: load_file failed"))
-        return;
-
-    fprintf(file,
-            "\\documentclass[a4paper,12pt]{article}\n"
-            "\\usepackage[a4paper,top=1.3cm,bottom=2cm,left=1.5cm,right=1.5cm]{geometry}\n"
-            "\\usepackage{amsmath,amsfonts,amssymb,amsthm,mathtools}\n"
-            "\\usepackage{tikz}\n"
-            "\\usepackage{pgfplots}\n"
-            "\\pgfplotsset{compat=1.18}\n"
-            "\\begin{document}\n\n");
-
-    fclose(file);
-}
-
-void tree_dump_latex(const tree_t* tree,
-                     const char*   filename,
-                     const char*   comment)
-{
-    if (!CHECK(ERROR, tree != NULL,     "tree_dump_latex: tree is NULL"))
-        return;
-    if (!CHECK(ERROR, filename != NULL, "tree_dump_latex: filename is NULL"))
-        return;
-
-    if (!CHECK(ERROR, tree_verify(tree) == OK,
-               "tree_dump_latex: tree verification failed"))
-        return;
-
-    FILE* file = load_file(filename, "a");
-    if (!CHECK(ERROR, file != NULL, "tree_dump_latex: load_file failed"))
-        return;
-
-    if (comment && comment[0] != '\0')
-    {
-        fprintf(file, "%% %s\n", comment);
-        fprintf(file, "\\noindent\\textbf{%s}\\\\[4pt]\n\n", comment);
-    }
-
-    fprintf(file, "\\begin{equation}\n");
-    if (tree->root)
-        latex_print_node(file, tree->root, NULL, 0);
-    fprintf(file, "\n\\end{equation}\n\n");
-
-    fclose(file);
-}
-
-void tree_dump_end(const char* filename)
-{
-    if (!CHECK(ERROR, filename != NULL, "tree_dump_end: filename is NULL"))
-        return;
-
-    FILE* file = load_file(filename, "a");
-    if (!CHECK(ERROR, file != NULL, "tree_dump_end: load_file failed"))
-        return;
-
-    fprintf(file, "\\end{document}\n");
-    fclose(file);
-
-    char cmd[512] = { 0 };
-    snprintf(cmd, sizeof(cmd),
-             "pdflatex -interaction=nonstopmode -halt-on-error \"%s\" > /dev/null 2>&1",
-             filename);
-    unused system(cmd);
-}
-
-static double eval_node_plot(const node_t* node, double x)
+static double eval_node_plot(const node_t* node, char var_name, double x)
 {
     if (!node)
         return NAN;
@@ -614,14 +630,16 @@ static double eval_node_plot(const node_t* node, double x)
             return node->value.d_value;
 
         case TYPE_VAR:
-            if (node->value.var.name && strcmp(node->value.var.name, "x") == 0)
+            if (node->value.var.name &&
+                node->value.var.name[0] == var_name &&
+                node->value.var.name[1] == '\0')
                 return x;
-            return 0.0;
+            return node->value.var.value;
 
         case TYPE_OP:
         {
-            double left  = node->left  ? eval_node_plot(node->left,  x) : NAN;
-            double right = node->right ? eval_node_plot(node->right, x) : NAN;
+            double left  = node->left  ? eval_node_plot(node->left,  var_name, x) : NAN;
+            double right = node->right ? eval_node_plot(node->right, var_name, x) : NAN;
 
             switch (node->value.op)
             {
@@ -661,29 +679,210 @@ static double eval_node_plot(const node_t* node, double x)
     }
 }
 
+static FILE* dump_open_append(const tree_t*        tree,
+                              derivative_config_t* config,
+                              int                  need_tree_verify,
+                              const char*          who)
+{
+    unused(who);
+
+    if (!CHECK(ERROR, config != NULL, "dump_open_append: config is NULL"))
+        return NULL;
+    if (!CHECK(ERROR, config->dump_filename != NULL, "dump_open_append: dump_filename is NULL"))
+        return NULL;
+
+    if (need_tree_verify)
+    {
+        if (!CHECK(ERROR, tree != NULL, "dump_open_append: tree is NULL"))
+            return NULL;
+        if (!CHECK(ERROR, tree_verify(tree) == OK,
+                   "dump_open_append: tree verification failed"))
+            return NULL;
+    }
+
+    FILE* file = load_file(config->dump_filename, "a");
+    if (!CHECK(ERROR, file != NULL, "dump_open_append: load_file failed"))
+        return NULL;
+
+    return file;
+}
+
+typedef struct AxisParams
+{
+    double x_from;
+    double x_to;
+    double y_from;
+    double y_to;
+    int    has_x;
+    int    has_y;
+    int    restrict_y;
+} AxisParams;
+
+static AxisParams axis_params_from_config(derivative_config_t* config,
+                                          int use_taylor_y)
+{
+    AxisParams p;
+    p.x_from = config->x_from;
+    p.x_to   = config->x_to;
+    if (use_taylor_y)
+    {
+        p.y_from = config->taylor_y_from;
+        p.y_to   = config->taylor_y_to;
+    }
+    else
+    {
+        p.y_from = config->y_from;
+        p.y_to   = config->y_to;
+    }
+    p.has_x = !(p.x_from == 0.0 && p.x_to == 0.0);
+    p.has_y = !(p.y_from == 0.0 && p.y_to == 0.0);
+    p.restrict_y = p.has_x && p.has_y;
+    return p;
+}
+
+static void dump_axis_begin(FILE* file, const AxisParams* p)
+{
+    fprintf(file,
+            "\\begin{tikzpicture}\n"
+            "\\begin{axis}[\n");
+
+    if (p->has_x)
+        fprintf(file, "  xmin=%g, xmax=%g,\n", p->x_from, p->x_to);
+    if (p->has_y)
+        fprintf(file, "  ymin=%g, ymax=%g,\n", p->y_from, p->y_to);
+
+    fprintf(file,
+            "  axis lines=middle,\n"
+            "  grid=both,\n"
+            "  xlabel={$x$},\n"
+            "  ylabel={$y$}");
+
+    if (p->restrict_y)
+        fprintf(file,
+                ",\n"
+                "  restrict y to domain=%g:%g,\n"
+                "  unbounded coords=discard",
+                p->y_from, p->y_to);
+
+    fprintf(file, "\n]\n");
+}
+
+static void dump_axis_end(FILE* file)
+{
+    fprintf(file,
+            "\\end{axis}\n"
+            "\\end{tikzpicture}\n\n");
+}
+
+static void dump_function_curve(FILE* file,
+                                const node_t* root,
+                                char          var_name,
+                                double        x_from,
+                                double        x_to,
+                                double        step)
+{
+    fprintf(file, "\\addplot[smooth] coordinates {\n");
+    for (double x = x_from; x <= x_to + 0.5 * step; x += step)
+    {
+        double y = eval_node_plot(root, var_name, x);
+        if (!isnan(y) && !isinf(y))
+            fprintf(file, "  (%g,%g)\n", x, y);
+    }
+    fprintf(file, "};\n");
+}
+
+void tree_dump_begin(derivative_config_t* config)
+{
+    if (!CHECK(ERROR, config != NULL, "tree_dump_begin: config is NULL"))
+        return;
+    if (!CHECK(ERROR, config->dump_filename != NULL, "tree_dump_begin: dump_filename is NULL"))
+        return;
+
+    FILE* file = load_file(config->dump_filename, "w");
+    if (!CHECK(ERROR, file != NULL, "tree_dump_begin: load_file failed"))
+        return;
+
+    fprintf(file,
+            "\\documentclass[a4paper,12pt]{article}\n"
+            "\\usepackage[T2A]{fontenc}\n"
+            "\\usepackage[utf8]{inputenc}\n"
+            "\\usepackage[english,russian]{babel}\n"
+            "\\usepackage[a4paper,top=1.3cm,bottom=2cm,left=1.5cm,right=1.5cm]{geometry}\n"
+            "\\usepackage{amsmath,amsfonts,amssymb,amsthm,mathtools}\n"
+            "\\usepackage{breqn}\n"
+            "\\breqnsetup{breakdepth=1}\n"
+            "\\usepackage{tikz}\n"
+            "\\usepackage{pgfplots}\n"
+            "\\usepackage{hyperref}\n"
+            "\\pgfplotsset{compat=1.18}\n"
+            "\\begin{document}\n\n"
+            "\\tableofcontents\n"
+            "\\newpage\n\n");
+
+    fclose(file);
+}
+
+void tree_dump_latex(const tree_t* tree,
+                     derivative_config_t* config,
+                     const char*   comment)
+{
+    FILE* file = dump_open_append(tree, config, 1, "tree_dump_latex");
+    if (!file)
+        return;
+
+    if (comment && comment[0] != '\0')
+    {
+        fprintf(file, "%% %s\n", comment);
+        if (strcmp(comment, "Перед оптимизацией:") != 0 &&
+            strcmp(comment, "После оптимизации:") != 0)
+        {
+            fprintf(file,
+                    "\\section*{%s}\n"
+                    "\\addcontentsline{toc}{section}{%s}\n\n",
+                    comment, comment);
+        }
+        else
+        {
+            fprintf(file, "\n");
+        }
+    }
+
+    fprintf(file, "\\begin{dmath}\n");
+    if (tree->root)
+        latex_print_node(file, tree->root, NULL, 0);
+    fprintf(file, "\n\\end{dmath}\n\n");
+
+    fclose(file);
+}
+
+void tree_dump_end(derivative_config_t* config)
+{
+    if (!CHECK(ERROR, config != NULL, "tree_dump_end: config is NULL"))
+        return;
+    if (!CHECK(ERROR, config->dump_filename != NULL, "tree_dump_end: dump_filename is NULL"))
+        return;
+
+    FILE* file = load_file(config->dump_filename, "a");
+    if (!CHECK(ERROR, file != NULL, "tree_dump_end: load_file failed"))
+        return;
+
+    fprintf(file, "\\end{document}\n");
+    fclose(file);
+
+    char cmd[512] = { 0 };
+    snprintf(cmd, sizeof(cmd),
+             "pdflatex -interaction=nonstopmode -halt-on-error \"%s\" > /dev/null 2>&1",
+             config->dump_filename);
+    unused system(cmd);
+    unused system(cmd);
+}
+
 void tree_dump_plot(const tree_t* tree,
-                    const char*   filename,
-                    double        x_from,
-                    double        x_to,
-                    double        y_from,
-                    double        y_to,
-                    double        step,
+                    derivative_config_t* config,
                     const char*   comment)
 {
-    if (!CHECK(ERROR, tree != NULL,     "tree_dump_plot: tree is NULL"))
-        return;
-    if (!CHECK(ERROR, filename != NULL, "tree_dump_plot: filename is NULL"))
-        return;
-
-    if (!CHECK(ERROR, tree_verify(tree) == OK,
-               "tree_dump_plot: tree verification failed"))
-        return;
-
-    if (step <= 0.0 || x_to <= x_from)
-        return;
-
-    FILE* file = load_file(filename, "a");
-    if (!CHECK(ERROR, file != NULL, "tree_dump_plot: load_file failed"))
+    FILE* file = dump_open_append(tree, config, 1, "tree_dump_plot");
+    if (!file)
         return;
 
     if (comment && comment[0] != '\0')
@@ -692,31 +891,193 @@ void tree_dump_plot(const tree_t* tree,
         fprintf(file, "\\noindent\\textbf{%s}\\\\[4pt]\n\n", comment);
     }
 
-    fprintf(file,
-            "\\begin{tikzpicture}\n"
-            "\\begin{axis}[\n"
-            "  xmin=%g, xmax=%g,\n"
-            "  ymin=%g, ymax=%g,\n"
-            "  axis lines=middle,\n"
-            "  grid=both,\n"
-            "  xlabel={$x$},\n"
-            "  ylabel={$y$}\n"
-            "]\n",
-            x_from, x_to, y_from, y_to);
+    double step = config->step;
+    if (step <= 0.0)
+        step = 0.01;
 
-    fprintf(file, "\\addplot[smooth] coordinates {\n");
-
-    for (double x = x_from; x <= x_to + 0.5 * step; x += step)
-    {
-        double y = eval_node_plot(tree->root, x);
-        if (!isnan(y) && !isinf(y))
-            fprintf(file, "  (%g,%g)\n", x, y);
-    }
-
-    fprintf(file,
-            "};\n"
-            "\\end{axis}\n"
-            "\\end{tikzpicture}\n\n");
+    AxisParams p = axis_params_from_config(config, 0);
+    dump_axis_begin(file, &p);
+    dump_function_curve(file, tree->root, config->variable,
+                        config->x_from, config->x_to, step);
+    dump_axis_end(file);
 
     fclose(file);
 }
+
+void tree_dump_plot_tangent(const tree_t* tree,
+                            derivative_config_t* config,
+                            const char*   comment)
+{
+    FILE* file = dump_open_append(tree, config, 1, "tree_dump_plot_tangent");
+    if (!file)
+        return;
+
+    if (comment && comment[0] != '\0')
+    {
+        fprintf(file,
+                "\\section*{%s}\n"
+                "\\addcontentsline{toc}{section}{%s}\n\n",
+                comment, comment);
+    }
+
+    double step = config->step;
+    if (step <= 0.0)
+        step = 0.01;
+
+    AxisParams p = axis_params_from_config(config, 0);
+    dump_axis_begin(file, &p);
+
+    dump_function_curve(file, tree->root, config->variable,
+                        config->x_from, config->x_to, step);
+
+    double x0 = config->tangent_x;
+    double y0 = eval_node_plot(tree->root, config->variable, x0);
+    double h  = step;
+    if (h <= 0.0)
+        h = 0.01;
+    double y_plus  = eval_node_plot(tree->root, config->variable, x0 + h);
+    double y_minus = eval_node_plot(tree->root, config->variable, x0 - h);
+    double m = NAN;
+
+    if (!isnan(y_plus) && !isinf(y_plus) &&
+        !isnan(y_minus) && !isinf(y_minus))
+    {
+        m = (y_plus - y_minus) / (2.0 * h);
+    }
+
+    if (!isnan(y0) && !isinf(y0) && !isnan(m) && !isinf(m))
+    {
+        fprintf(file, "\\addplot[smooth, color=red] coordinates {\n");
+        for (double x = config->x_from; x <= config->x_to + 0.5 * step; x += step)
+        {
+            double yt = y0 + m * (x - x0);
+            if (!isnan(yt) && !isinf(yt))
+                fprintf(file, "  (%g,%g)\n", x, yt);
+        }
+        fprintf(file, "};\n");
+    }
+
+    dump_axis_end(file);
+    fclose(file);
+}
+
+static int compute_taylor_coeffs(const tree_t* tree,
+                                 derivative_config_t* base_config,
+                                 size_t n,
+                                 double* coeffs)
+{
+    if (!tree || !tree->root || !coeffs || !base_config)
+        return 0;
+
+    double x0 = base_config->tangent_x;
+    double f0 = eval_node_plot(tree->root, base_config->variable, x0);
+    if (isnan(f0) || isinf(f0))
+        return 0;
+
+    coeffs[0] = f0;
+    double fact = 1.0;
+
+    for (size_t k = 1; k <= n; ++k)
+    {
+        tree_t d;
+        if (tree_ctor(&d) != OK)
+            return 0;
+
+        derivative_config_t cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.dump_filename = NULL;
+        cfg.derivative_n  = k;
+        cfg.variable      = base_config->variable;
+
+        if (tree_derivative((tree_t*)tree, &d, &cfg) != OK)
+        {
+            tree_dtor(&d);
+            return 0;
+        }
+
+        double dk = eval_node_plot(d.root, base_config->variable, x0);
+        tree_dtor(&d);
+
+        if (isnan(dk) || isinf(dk))
+            return 0;
+
+        fact *= (double)k;
+        coeffs[k] = dk / fact;
+    }
+
+    return 1;
+}
+
+static double eval_taylor_from_coeffs(const double* coeffs,
+                                      size_t n,
+                                      double x,
+                                      double x0)
+{
+    double dx = x - x0;
+    double res = coeffs[0];
+    double p = 1.0;
+
+    for (size_t k = 1; k <= n; ++k)
+    {
+        p *= dx;
+        res += coeffs[k] * p;
+    }
+
+    return res;
+}
+
+void tree_dump_plot_taylor(const tree_t* tree,
+                           derivative_config_t* config,
+                           const char*   comment)
+{
+    FILE* file = dump_open_append(tree, config, 1, "tree_dump_plot_taylor");
+    if (!file)
+        return;
+
+    if (comment && comment[0] != '\0')
+    {
+        fprintf(file,
+                "\\section*{%s}\n"
+                "\\addcontentsline{toc}{section}{%s}\n\n",
+                comment, comment);
+    }
+
+    double step = config->step;
+    if (step <= 0.0)
+        step = 0.01;
+
+    AxisParams p = axis_params_from_config(config, 1);
+    dump_axis_begin(file, &p);
+
+    dump_function_curve(file, tree->root, config->variable,
+                        config->x_from, config->x_to, step);
+
+    size_t n = config->taylor_n;
+    double x0 = 0.0;
+
+    if (n > 0)
+    {
+        double* coeffs = (double*)calloc(n + 1, sizeof(double));
+        if (coeffs)
+        {
+            if (compute_taylor_coeffs(tree, config, n, coeffs))
+            {
+                fprintf(file, "\\addplot[smooth, color=red] coordinates {\n");
+                for (double x = config->x_from;
+                     x <= config->x_to + 0.5 * step;
+                     x += step)
+                {
+                    double y = eval_taylor_from_coeffs(coeffs, n, x, x0);
+                    if (!isnan(y) && !isinf(y))
+                        fprintf(file, "  (%g,%g)\n", x, y);
+                }
+                fprintf(file, "};\n");
+            }
+            free(coeffs);
+        }
+    }
+
+    dump_axis_end(file);
+    fclose(file);
+}
+

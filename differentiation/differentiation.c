@@ -1,8 +1,13 @@
 #include "differentiation.h"
+#include "../tree/dump/dump.h"
 
-static node_t* new_num(tree_t* out_tree, double v, err_t* err)
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+static node_t* alloc_node(tree_t* out_tree, err_t* err)
 {
-    if (*err != OK)
+    if (!out_tree || !err || *err != OK)
         return NULL;
 
     node_t* n = NULL;
@@ -13,37 +18,37 @@ static node_t* new_num(tree_t* out_tree, double v, err_t* err)
         return NULL;
     }
 
-    n->node_type     = TYPE_NUM;
-    n->value.d_value = v;
-    n->left          = NULL;
-    n->right         = NULL;
-    n->rank          = 100;
-
+    n->left  = NULL;
+    n->right = NULL;
     out_tree->nodes_amount++;
     return n;
 }
 
-static node_t* new_op(tree_t* out_tree, node_operations_e op,
-                      node_t* left, node_t* right, err_t* err)
+static node_t* new_num(tree_t* out_tree, double v, err_t* err)
 {
-    if (*err != OK)
-        return NULL;
+    node_t* n = alloc_node(out_tree, err);
+    if (!n) return NULL;
 
-    node_t* n = NULL;
-    *err = node_ctor(&n);
-    if (*err != OK || !n)
-    {
-        *err = ERR_ALLOC;
-        return NULL;
-    }
+    n->node_type     = TYPE_NUM;
+    n->value.d_value = v;
+    n->rank          = 100;
+    return n;
+}
+
+static node_t* new_op(tree_t* out_tree,
+                      node_operations_e op,
+                      node_t*           left,
+                      node_t*           right,
+                      err_t*            err)
+{
+    node_t* n = alloc_node(out_tree, err);
+    if (!n) return NULL;
 
     n->node_type = TYPE_OP;
     n->value.op  = op;
     n->left      = left;
     n->right     = right;
     n->rank      = get_op_rank(op);
-
-    out_tree->nodes_amount++;
     return n;
 }
 
@@ -101,7 +106,8 @@ static node_t* diff_op(const node_t* node,
         case OP_ADD:  return ADD_(dL, dR);
         case OP_SUB:  return SUB_(dL, dR);
         case OP_MUL:  return ADD_(MUL_(dL, cR), MUL_(cL, dR));
-        case OP_DIV:  return DIV_(SUB_(MUL_(dL, cR), MUL_(cL, dR)), POW_(cR, CONST_(2.0)));
+        case OP_DIV:  return DIV_(SUB_(MUL_(dL, cR), MUL_(cL, dR)),
+                                  POW_(cR, CONST_(2.0)));
 
         case OP_POW:
         {
@@ -111,47 +117,54 @@ static node_t* diff_op(const node_t* node,
             if (!left_dep && !right_dep)
                 return CONST_(0.0);
             else if (left_dep && !right_dep)
-                return MUL_(MUL_(cR, POW_(cL, SUB_(cR, CONST_(1.0)))), dL);
+                return MUL_(MUL_(cR,
+                                 POW_(cL, SUB_(cR, CONST_(1.0)))),
+                            dL);
             else if (!left_dep && right_dep)
-                return MUL_(MUL_(POW_(cL, cR), LN_(cL)), dR);
+                return MUL_(MUL_(POW_(cL, cR),
+                                 LN_(cL)),
+                            dR);
             else
-            {
-                node_t* term1 = MUL_(dR, LN_(cL));
-                node_t* term2 = MUL_(cR, DIV_(dL, cL));
-                node_t* sum   = ADD_(term1, term2);
-                return MUL_(POW_(cL, cR), sum);
-            }
+                return MUL_(POW_(cL, cR),
+                            ADD_(MUL_(dR, LN_(cL)),
+                                 MUL_(cR, DIV_(dL, cL))));
         }
 
         case OP_LN:   return DIV_(dL, cL);
 
         case OP_LOG:
-        {
-            node_t* term1 = MUL_(DIV_(dR, cR), LN_(cL));
-            node_t* term2 = MUL_(DIV_(dL, cL), LN_(cR));
-            node_t* num   = SUB_(term1, term2);
-            node_t* den   = POW_(LN_(cL), CONST_(2.0));
-            return DIV_(num, den);
-        }
+            return DIV_(SUB_(MUL_(DIV_(dR, cR), LN_(cL)),
+                             MUL_(DIV_(dL, cL), LN_(cR))),
+                        POW_(LN_(cL), CONST_(2.0)));
 
         case OP_SQRT: return DIV_(dL, MUL_(CONST_(2.0), SQRT_(cL)));
 
         case OP_SIN:  return MUL_(COS_(cL), dL);
         case OP_COS:  return MUL_(CONST_(-1.0), MUL_(SIN_(cL), dL));
         case OP_TAN:  return DIV_(dL, POW_(COS_(cL), CONST_(2.0)));
-        case OP_COT:  return MUL_(CONST_(-1.0), DIV_(dL, POW_(SIN_(cL), CONST_(2.0))));
+        case OP_COT:  return MUL_(CONST_(-1.0),
+                                  DIV_(dL, POW_(SIN_(cL), CONST_(2.0))));
 
         case OP_SINH: return MUL_(COSH_(cL), dL);
         case OP_COSH: return MUL_(SINH_(cL), dL);
         case OP_TANH: return DIV_(dL, POW_(COSH_(cL), CONST_(2.0)));
-        case OP_COTH: return MUL_(CONST_(-1.0), DIV_(dL, POW_(SINH_(cL), CONST_(2.0))));
+        case OP_COTH: return MUL_(CONST_(-1.0),
+                                  DIV_(dL, POW_(SINH_(cL), CONST_(2.0))));
 
-        case OP_ASIN: return DIV_(dL, SQRT_(SUB_(CONST_(1.0), POW_(cL, CONST_(2.0)))));
+        case OP_ASIN: return DIV_(dL,
+                                  SQRT_(SUB_(CONST_(1.0),
+                                             POW_(cL, CONST_(2.0)))));
         case OP_ACOS: return MUL_(CONST_(-1.0),
-                                  DIV_(dL, SQRT_(SUB_(CONST_(1.0), POW_(cL, CONST_(2.0))))));
-        case OP_ATAN: return DIV_(dL, ADD_(CONST_(1.0), POW_(cL, CONST_(2.0))));
+                                  DIV_(dL,
+                                       SQRT_(SUB_(CONST_(1.0),
+                                                  POW_(cL, CONST_(2.0))))));
+        case OP_ATAN: return DIV_(dL,
+                                  ADD_(CONST_(1.0),
+                                       POW_(cL, CONST_(2.0))));
         case OP_ACOT: return MUL_(CONST_(-1.0),
-                                  DIV_(dL, ADD_(CONST_(1.0), POW_(cL, CONST_(2.0)))));
+                                  DIV_(dL,
+                                       ADD_(CONST_(1.0),
+                                            POW_(cL, CONST_(2.0)))));
 
         case OP_NOP:
         default:
@@ -193,6 +206,33 @@ static size_t count_nodes_rec(const node_t* n)
     return 1 + count_nodes_rec(n->left) + count_nodes_rec(n->right);
 }
 
+static err_t tree_clone_into(const tree_t* src, tree_t* dst)
+{
+    if (!src || !dst)
+        return ERR_BAD_ARG;
+
+    err_t err = OK;
+
+    tree_clear(dst);
+
+    if (!src->root)
+    {
+        dst->root         = NULL;
+        dst->nodes_amount = 0;
+        return OK;
+    }
+
+    dst->root = clone_subtree(src->root, dst, 0, &err);
+    if (err != OK || !dst->root)
+    {
+        tree_clear(dst);
+        return err ? err : ERR_CORRUPT;
+    }
+
+    dst->nodes_amount = count_nodes_rec(dst->root);
+    return OK;
+}
+
 static err_t tree_derivative_once(const tree_t* in_tree,
                                   tree_t*       out_tree,
                                   size_t        var_hash)
@@ -220,47 +260,33 @@ static err_t tree_derivative_once(const tree_t* in_tree,
     return OK;
 }
 
-err_t tree_derivative(tree_t* in_tree,
-                      tree_t* out_tree,
-                      const char * const variable,
-                      size_t n)
+static err_t tree_derivative_plain(const tree_t* in_tree,
+                                   tree_t*       out_tree,
+                                   size_t        var_hash,
+                                   size_t        n)
 {
-    if (!in_tree || !out_tree || !variable)
+    if (!in_tree || !out_tree)
         return ERR_BAD_ARG;
 
-    size_t var_hash = sdbm(variable);
-
     if (n == 0)
-    {
-        err_t err = OK;
-        tree_clear(out_tree);
-        out_tree->root         = clone_subtree(in_tree->root, out_tree, 0, &err);
-        if (err != OK)
-        {
-            tree_clear(out_tree);
-            return err;
-        }
-        out_tree->nodes_amount = count_nodes_rec(out_tree->root);
-        return OK;
-    }
+        return tree_clone_into(in_tree, out_tree);
 
     tree_t current;
     err_t err = tree_ctor(&current);
     if (err != OK)
         return err;
 
-    err = OK;
-    current.root         = clone_subtree(in_tree->root, &current, 0, &err);
+    err = tree_clone_into(in_tree, &current);
     if (err != OK)
     {
         tree_clear(&current);
         return err;
     }
-    current.nodes_amount = count_nodes_rec(current.root);
 
     for (size_t i = 0; i < n; ++i)
     {
         tree_clear(out_tree);
+
         err = tree_derivative_once(&current, out_tree, var_hash);
         if (err != OK)
         {
@@ -271,21 +297,222 @@ err_t tree_derivative(tree_t* in_tree,
 
         if (i + 1 < n)
         {
-            tree_clear(&current);
-            err = OK;
-            current.root         = clone_subtree(out_tree->root, &current, 0, &err);
+            err = tree_clone_into(out_tree, &current);
             if (err != OK)
             {
                 tree_clear(&current);
                 tree_clear(out_tree);
                 return err;
             }
-            current.nodes_amount = count_nodes_rec(current.root);
         }
     }
 
     tree_clear(&current);
     return OK;
+}
+
+static void dump_initial_function_and_plots(tree_t*              in_tree,
+                                            derivative_config_t* config)
+{
+    if (!in_tree || !config)
+        return;
+
+    double tangent_x = config->tangent_x;
+
+    tree_dump_latex(in_tree, config, "Исходная функция:");
+
+    if (config->plot_original)
+        tree_dump_plot(in_tree, config, "График:");
+
+    if (config->plot_tangent_original)
+    {
+        char plt_comment[256] = {0};
+        snprintf(plt_comment, sizeof(plt_comment),
+                 "График касательной к исходной функции в точке %lf:",
+                 tangent_x);
+        tree_dump_plot_tangent(in_tree, config, plt_comment);
+    }
+
+    if (config->plot_taylor)
+    {
+        char plt_comment[256] = {0};
+        snprintf(plt_comment, sizeof(plt_comment),
+                 "График серии Тейлора:");
+        tree_dump_plot_taylor(in_tree, config, plt_comment);
+    }
+
+    tree_dump_heading(config, "Решение");
+}
+
+static err_t tree_derivative_zero_with_dump(tree_t*              in_tree,
+                                            tree_t*              out_tree,
+                                            derivative_config_t* config)
+{
+    if (!in_tree || !out_tree || !config)
+        return ERR_BAD_ARG;
+
+    double tangent_x = config->tangent_x;
+
+    err_t err = tree_clone_into(in_tree, out_tree);
+    if (err != OK)
+    {
+        tree_clear(out_tree);
+        return err;
+    }
+
+    tree_dump_random_meme(config);
+
+    tree_dump_latex(out_tree, config,
+                    "Нулевая производная по x совпадает с функцией:");
+
+    if (config->plot_derivative)
+    {
+        tree_dump_plot(out_tree, config, "График функции:");
+    }
+
+    if (config->plot_tangent_derivative)
+    {
+        char plt_comment[256] = {0};
+        snprintf(plt_comment, sizeof(plt_comment),
+                 "График касательной к функции в точке %lf:",
+                 tangent_x);
+        tree_dump_plot_tangent(out_tree, config, plt_comment);
+    }
+
+    return OK;
+}
+
+static err_t tree_derivative_sequence_with_dump(tree_t*              in_tree,
+                                                tree_t*              out_tree,
+                                                derivative_config_t* config,
+                                                size_t               var_hash)
+{
+    if (!in_tree || !out_tree || !config)
+        return ERR_BAD_ARG;
+
+    size_t n = config->derivative_n;
+
+    char   variable_str[2] = { config->variable, '\0' };
+    double tangent_x       = config->tangent_x;
+
+    tree_t current;
+    err_t err = tree_ctor(&current);
+    if (err != OK)
+        return err;
+
+    err = tree_clone_into(in_tree, &current);
+    if (err != OK)
+    {
+        tree_clear(&current);
+        return err;
+    }
+
+    tree_dump_random_meme(config);
+    tree_dump_latex(&current, config, "Начальная запись решения:");
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        tree_clear(out_tree);
+
+        err = tree_derivative_once(&current, out_tree, var_hash);
+        if (err != OK)
+        {
+            tree_clear(&current);
+            tree_clear(out_tree);
+            return err;
+        }
+
+        tree_dump_random_meme(config);
+
+        char comment[256] = {0};
+        snprintf(comment, sizeof(comment),
+                 "Производная %zu-го порядка по %s:",
+                 i + 1, variable_str);
+        tree_dump_latex(out_tree, config, comment);
+
+        if (config->plot_derivative)
+        {
+            char plot_comment[256] = {0};
+            snprintf(plot_comment, sizeof(plot_comment),
+                     "График производной %zu-го порядка по %s:",
+                     i + 1, variable_str);
+            tree_dump_plot(out_tree, config, plot_comment);
+        }
+
+
+        tree_optimize(out_tree);
+
+        char opt_comment[256] = {0};
+        snprintf(opt_comment, sizeof(opt_comment),
+                 "Производная %zu-го порядка по %s (после оптимизации):",
+                 i + 1, variable_str);
+        tree_dump_latex(out_tree, config, opt_comment);
+
+        if (config->plot_tangent_derivative)
+        {
+            char plt_comment[256] = {0};
+            snprintf(plt_comment, sizeof(plt_comment),
+                     "График касательной к производной %zu-го порядка по %s в точке %lf:",
+                     i + 1, variable_str, tangent_x);
+            tree_dump_plot_tangent(out_tree, config, plt_comment);
+        }
+
+        err = tree_clone_into(out_tree, &current);
+        if (err != OK)
+        {
+            tree_clear(&current);
+            tree_clear(out_tree);
+        return err;
+        }
+    }
+
+    tree_clear(&current);
+    return OK;
+}
+
+static err_t tree_derivative_with_dump_body(tree_t*              in_tree,
+                                            tree_t*              out_tree,
+                                            derivative_config_t* config,
+                                            size_t               var_hash)
+{
+    if (!in_tree || !out_tree || !config)
+        return ERR_BAD_ARG;
+
+    size_t n = config->derivative_n;
+
+    dump_initial_function_and_plots(in_tree, config);
+
+    if (n == 0)
+        return tree_derivative_zero_with_dump(in_tree, out_tree, config);
+
+    return tree_derivative_sequence_with_dump(in_tree, out_tree,
+                                              config, var_hash);
+}
+
+err_t tree_derivative(tree_t*              in_tree,
+                      tree_t*              out_tree,
+                      derivative_config_t* config)
+{
+    if (!in_tree || !out_tree || !config)
+        return ERR_BAD_ARG;
+
+    char   variable_str[2] = { config->variable, '\0' };
+    size_t var_hash        = sdbm(variable_str);
+
+    if (!config->dump_filename)
+    {
+        return tree_derivative_plain(in_tree, out_tree,
+                                     var_hash, config->derivative_n);
+    }
+
+    tree_dump_reset(config->dump_filename);
+    tree_dump_begin(config);
+
+    err_t err = tree_derivative_with_dump_body(in_tree, out_tree,
+                                               config, var_hash);
+
+    tree_dump_end(config);
+    return err;
 }
 
 #undef cL
@@ -308,3 +535,4 @@ err_t tree_derivative(tree_t* in_tree,
 #undef COTH_
 #undef LN_
 #undef SQRT_
+

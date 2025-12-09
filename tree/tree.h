@@ -95,6 +95,27 @@ typedef struct
     size_t  var_capacity;
 } tree_t;
 
+typedef struct
+{
+    char* dump_filename;
+
+    size_t derivative_n;
+    size_t taylor_n;
+    char   variable;
+
+    double x_from, x_to;
+    double y_from, y_to;
+    double taylor_y_from, taylor_y_to;
+    double step;
+    double tangent_x;
+
+    bool plot_original;
+    bool plot_tangent_original;
+    bool plot_derivative;
+    bool plot_tangent_derivative;
+    bool plot_taylor;
+} derivative_config_t;
+
 #define CREATE_TREE(tree_name) \
     tree_t tree_name;          \
     tree_ctor(&(tree_name))
@@ -113,12 +134,11 @@ err_t tree_dtor(tree_t * const tree);
 
 err_t tree_verify(const tree_t * const tree);
 
-err_t tree_fprint     (const char* filename, const tree_t * const tree);
 err_t tree_delete_node(node_t * node, size_t iter);
 err_t tree_clear      (tree_t * const tree);
 
 err_t tree_insert     (tree_t * const tree, node_t * const node);
-err_t tree_read_file  (tree_t *tree, const char* filename, logging_level level);
+err_t tree_read_file  (tree_t *tree, derivative_config_t* config, const char* filename, logging_level level);
 
 var_t* get_or_create_var(tree_t* tree, const char* name);
 double evaluate_tree    (tree_t* tree);
@@ -128,6 +148,8 @@ node_t* clone_subtree(const node_t* src,
                       tree_t*       dst,
                       size_t        depth,
                       err_t*        err);
+
+const char* op_to_str(node_operations_e op);
 
 bool   is_same    (double a, double b); 
 size_t get_op_rank(node_operations_e op);

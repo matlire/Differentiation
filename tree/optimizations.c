@@ -4,7 +4,9 @@
 
 static int is_num(const node_t* n, double v)
 {
-    return n && n->node_type == TYPE_NUM && n->value.d_value == v;
+    return n &&
+           n->node_type == TYPE_NUM &&
+           is_same(n->value.d_value, v);
 }
 
 #define L node->left
@@ -100,28 +102,28 @@ static int fold_const_pow_subtree(const node_t* n, double* out)
             switch (n->value.op)
             {
                 case OP_ADD:
-                    if (!fold_const_pow_subtree(n->left, &lv) ||
+                    if (!fold_const_pow_subtree(n->left,  &lv) ||
                         !fold_const_pow_subtree(n->right, &rv))
                         return 0;
                     *out = lv + rv;
                     return 1;
 
                 case OP_SUB:
-                    if (!fold_const_pow_subtree(n->left, &lv) ||
+                    if (!fold_const_pow_subtree(n->left,  &lv) ||
                         !fold_const_pow_subtree(n->right, &rv))
                         return 0;
                     *out = lv - rv;
                     return 1;
 
                 case OP_MUL:
-                    if (!fold_const_pow_subtree(n->left, &lv) ||
+                    if (!fold_const_pow_subtree(n->left,  &lv) ||
                         !fold_const_pow_subtree(n->right, &rv))
                         return 0;
                     *out = lv * rv;
                     return 1;
 
                 case OP_DIV:
-                    if (!fold_const_pow_subtree(n->left, &lv) ||
+                    if (!fold_const_pow_subtree(n->left,  &lv) ||
                         !fold_const_pow_subtree(n->right, &rv))
                         return 0;
                     if (is_same(rv, 0.0))
@@ -188,6 +190,49 @@ static node_t* optimize_mul_node(node_t* node, int* changed)
     return node;
 }
 
+static node_t* optimize_div_node(node_t* node, int* changed)
+{
+    if (L && R &&
+        L->node_type == TYPE_NUM && R->node_type == TYPE_NUM)
+    {
+        if (!is_same(R->value.d_value, 0.0))
+        {
+            double res_val = L->value.d_value / R->value.d_value;
+            tree_delete_node(L, 0);
+            tree_delete_node(R, 0);
+            L = R = NULL;
+            node->node_type     = TYPE_NUM;
+            node->value.d_value = res_val;
+            *changed = 1;
+            return node;
+        }
+    }
+    if (is_num(L, 0.0) && !is_num(R, 0.0))
+    {
+        if (!is_num(R, 0.0))
+        {
+            if (R) tree_delete_node(R, 0);
+            if (L) tree_delete_node(L, 0);
+            L = R = NULL;
+            node->node_type     = TYPE_NUM;
+            node->value.d_value = 0.0;
+            *changed = 1;
+            return node;
+        }
+    }
+    if (is_num(R, 1.0) && !is_num(L, 1.0))
+    {
+        node_t* res = L;
+        tree_delete_node(R, 0);
+        node->left  = NULL;
+        node->right = NULL;
+        node_dtor(node);
+        *changed = 1;
+        return res;
+    }
+    return node;
+}
+
 static node_t* optimize_pow_node(node_t* node, int* changed)
 {
     if (is_num(R, 0.0))
@@ -207,6 +252,7 @@ static node_t* optimize_pow_node(node_t* node, int* changed)
         tree_delete_node(R, 0);
         node->left  = NULL;
         node->right = NULL;
+        node_dtor(node);
         *changed = 1;
         return res;
     }
@@ -240,7 +286,6 @@ static node_t* optimize_pow_node(node_t* node, int* changed)
             R->node_type     = TYPE_NUM;
             R->value.d_value = exp_val;
             *changed = 1;
-
             return node;
         }
     }
@@ -268,6 +313,8 @@ static node_t* optimize_subtree(node_t* node, int* changed)
             return optimize_sub_node(node, changed);
         case OP_MUL:
             return optimize_mul_node(node, changed);
+        case OP_DIV:
+            return optimize_div_node(node, changed);
         case OP_POW:
             return optimize_pow_node(node, changed);
         default:
